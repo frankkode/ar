@@ -16,6 +16,11 @@
   #hint{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:6;
     background:rgba(8,12,24,.82);color:#eef;padding:9px 16px;border-radius:20px;font-size:13px;
     border:1px solid rgba(120,150,210,.3)}
+  #speakBtn{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:7;
+    background:#ff3b5c;color:#fff;border:none;padding:14px 26px;border-radius:28px;
+    font-size:15px;font-weight:700;cursor:pointer;display:none;
+    box-shadow:0 4px 18px rgba(255,59,92,.45)}
+  #speakBtn:active{background:#e0304f}
 </style>
 </head>
 <body>
@@ -23,7 +28,8 @@
   <h1>Living Print — Augmented Reality</h1>
   <p>Point your camera at <b>Figure 4.2</b> (the printed heart figure)</p>
 </div>
-<div id="hint">Scanning… hold the figure steady · tap the heart to hear it</div>
+<div id="hint">Scanning… hold the figure steady</div>
+<button id="speakBtn">Tap to Hear the Heart</button>
 
 <a-scene
   mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiScanning: yes; uiLoading: yes; filterMinCF: 0.0001; filterBeta: 0.001"
@@ -35,7 +41,7 @@
   </a-assets>
 
   <a-camera position="0 0 0" look-controls="enabled: false" cursor="fuse: false; rayOrigin: mouse"
-            raycaster="objects: .tappable; far: 3"></a-camera>
+            raycaster="objects: .tappable"></a-camera>
 
   <!-- Content anchored to the figure (target 0) -->
   <a-entity mindar-image-target="targetIndex: 0">
@@ -44,26 +50,28 @@
     <a-entity light="type: ambient; intensity: 0.9"></a-entity>
     <a-entity light="type: directional; intensity: 0.8" position="0.5 1 1"></a-entity>
 
-    <!-- beating heart, larger scale, floating just above the page -->
-    <a-entity gltf-model="#heartModel" position="0 0 0.18" rotation="0 0 0" scale="0.7 0.7 0.7"
+    <!-- beating heart, scaled 3x, floating just above the page -->
+    <a-entity gltf-model="#heartModel" position="0 0 0.18" rotation="0 0 0" scale="2.1 2.1 2.1"
               class="tappable" id="arHeartModel"
               animation-mixer="clip: *; loop: repeat"
               animation="property: rotation; to: 0 360 0; loop: true; dur: 14000; easing: linear"></a-entity>
 
-    <!-- oversized invisible hitbox so tapping the heart is easy on any screen -->
-    <a-box class="tappable" position="0 0.1 0.18" width="1.0" height="1.0" depth="0.6"
+    <!-- oversized invisible hitbox so tapping is easy -->
+    <a-box class="tappable" position="0 0.1 0.18" width="2.0" height="2.0" depth="1.2"
            material="visible: false; transparent: true; opacity: 0"></a-box>
 
     <!-- floating caption above the heart -->
-    <a-entity position="0 0.62 0.2">
-      <a-plane width="1.05" height="0.18" color="#0b1124" opacity="0.85" material="shader: flat"></a-plane>
-      <a-text value="The Human Heart — tap to hear" align="center" width="1.8" color="#ffffff" position="0 0 0.01"></a-text>
+    <a-entity position="0 1.8 0.2">
+      <a-plane width="1.5" height="0.22" color="#0b1124" opacity="0.85" material="shader: flat"></a-plane>
+      <a-text value="The Human Heart — tap to hear" align="center" width="2.4" color="#ffffff" position="0 0 0.01"></a-text>
     </a-entity>
   </a-entity>
 </a-scene>
 
 <script>
-  // Tap the heart to narrate (Web Speech API)
+  var audioReady = false;
+  var line = "This is the human heart. The right side pumps deoxygenated blood to the lungs, and the left side pumps oxygenated blood to the body.";
+
   function speak(t){
     try{
       if(!window.speechSynthesis) return;
@@ -72,16 +80,40 @@
       var v=(window.speechSynthesis.getVoices()||[]).filter(function(x){return /^en/i.test(x.lang);});
       if(v.length) u.voice=v[0];
       window.speechSynthesis.resume(); window.speechSynthesis.speak(u);
-    }catch(e){}
+    }catch(e){console.log('speech error',e)}
   }
-  var line="This is the human heart. The right side pumps deoxygenated blood to the lungs, and the left side pumps oxygenated blood to the body.";
+
+  function unlockAudio(){
+    if(audioReady) return;
+    // A direct user gesture unlocks the speech synthesis API on mobile
+    speak(line);
+    audioReady = true;
+    document.querySelector('#speakBtn').style.display = 'none';
+  }
+
+  document.querySelector('#speakBtn').addEventListener('click', unlockAudio);
+
   window.addEventListener('load',function(){
     if(window.speechSynthesis) try{window.speechSynthesis.getVoices();}catch(e){}
-    var m=document.querySelector('#arHeartModel');
-    if(m) m.addEventListener('click',function(){ speak(line); });
-    var sc=document.querySelector('a-scene');
-    sc.addEventListener('targetFound',function(){ document.querySelector('#hint').textContent='Found! Tap the heart to hear it · move the page to rotate the view'; });
-    sc.addEventListener('targetLost',function(){ document.querySelector('#hint').textContent='Scanning… hold the figure steady'; });
+
+    var m = document.querySelector('#arHeartModel');
+    if(m) m.addEventListener('click',function(){
+      if(!audioReady){
+        unlockAudio();
+      } else {
+        speak(line);
+      }
+    });
+
+    var sc = document.querySelector('a-scene');
+    sc.addEventListener('targetFound',function(){
+      document.querySelector('#hint').textContent = 'Found! Tap the button to hear it';
+      document.querySelector('#speakBtn').style.display = 'block';
+    });
+    sc.addEventListener('targetLost',function(){
+      document.querySelector('#hint').textContent = 'Scanning… hold the figure steady';
+      document.querySelector('#speakBtn').style.display = 'none';
+    });
   });
 </script>
 </body>
