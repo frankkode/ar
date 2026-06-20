@@ -46,21 +46,17 @@
   <!-- Content anchored to the figure (target 0) -->
   <a-entity mindar-image-target="targetIndex: 0">
 
-    <!-- soft lighting so the model reads on the page -->
     <a-entity light="type: ambient; intensity: 0.9"></a-entity>
     <a-entity light="type: directional; intensity: 0.8" position="0.5 1 1"></a-entity>
 
-    <!-- beating heart, scaled 3x, floating just above the page -->
     <a-entity gltf-model="#heartModel" position="0 0 0.18" rotation="0 0 0" scale="2.1 2.1 2.1"
               class="tappable" id="arHeartModel"
               animation-mixer="clip: *; loop: repeat"
               animation="property: rotation; to: 0 360 0; loop: true; dur: 14000; easing: linear"></a-entity>
 
-    <!-- oversized invisible hitbox so tapping is easy -->
     <a-box class="tappable" position="0 0.1 0.18" width="2.0" height="2.0" depth="1.2"
            material="visible: false; transparent: true; opacity: 0"></a-box>
 
-    <!-- floating caption above the heart -->
     <a-entity position="0 1.8 0.2">
       <a-plane width="1.5" height="0.22" color="#0b1124" opacity="0.85" material="shader: flat"></a-plane>
       <a-text value="The Human Heart — tap to hear" align="center" width="2.4" color="#ffffff" position="0 0 0.01"></a-text>
@@ -70,130 +66,137 @@
 
 <script>
   var audioReady = false;
-  var audioCtx = null;
-  var heartbeatTimer = null;
-  var heartbeatOn = false;
+  var heartbeatAudio = null;
+  var heartbeatBufUrl = null;
   var line = "This is the human heart. The right side pumps deoxygenated blood to the lungs, and the left side pumps oxygenated blood to the body.";
 
+  // ── Render heartbeat WAV using OfflineAudioContext ──
+  function renderHeartbeatWav(callback){
+    var sampleRate = 44100;
+    var cycleLen = sampleRate; // 1 second of heartbeat
+    var ctx = new OfflineAudioContext(1, cycleLen, sampleRate);
+
+    function thump(startTime, freq, duration, volume){
+      // sub oscillator
+      var sub = ctx.createOscillator();
+      var subG = ctx.createGain();
+      sub.type = 'triangle';
+      sub.frequency.setValueAtTime(freq, startTime);
+      sub.frequency.exponentialRampToValueAtTime(freq * 0.3, startTime + duration);
+      subG.gain.setValueAtTime(0, startTime);
+      subG.gain.exponentialRampToValueAtTime(volume * 0.8, startTime + 0.01);
+      subG.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+      sub.connect(subG);
+      subG.connect(ctx.destination);
+
+      // noise texture
+      var bufSize = Math.floor(sampleRate * duration);
+      var nb = ctx.createBuffer(1, bufSize, sampleRate);
+      var d = nb.getChannelData(0);
+      for(var i = 0; i < bufSize; i++) d[i] = Math.random() * 2 - 1;
+      var noise = ctx.createBufferSource();
+      noise.buffer = nb;
+      var nf = ctx.createBiquadFilter();
+      nf.type = 'bandpass';
+      nf.frequency.value = 180;
+      nf.Q.value = 3;
+      var ng = ctx.createGain();
+      ng.gain.setValueAtTime(0, startTime);
+      ng.gain.exponentialRampToValueAtTime(volume * 0.18, startTime + 0.01);
+      ng.gain.exponentialRampToValueAtTime(0.001, startTime + duration * 0.5);
+      noise.connect(nf);
+      nf.connect(ng);
+      ng.connect(ctx.destination);
+
+      sub.start(startTime);
+      sub.stop(startTime + duration);
+      noise.start(startTime);
+      noise.stop(startTime + duration);
+    }
+
+    // lub-dub cycle repeated twice in 1 second (resting ~120bpm felt realism)
+    thump(0.05, 58, 0.22, 1.8);   // lub
+    thump(0.28, 75, 0.15, 1.4);  // dub
+    thump(0.55, 58, 0.22, 1.8);  // lub
+    thump(0.78, 75, 0.15, 1.4);  // dub
+
+    ctx.startRendering().then(function(buffer){
+      // convert AudioBuffer to WAV
+      var wav = audioBufferToWav(buffer);
+      var blob = new Blob([wav], {type: 'audio/wav'});
+      callback(URL.createObjectURL(blob));
+    });
+  }
+
+  function audioBufferToWav(buffer){
+    var numChannels = buffer.numberOfChannels;
+    var sampleRate = buffer.sampleRate;
+    var length = buffer.length;
+    var bytesPerSample = 2;
+    var blockAlign = numChannels * bytesPerSample;
+    var dataSize = length * blockAlign;
+    var headerSize = 44;
+    var arrayBuffer = new ArrayBuffer(headerSize + dataSize);
+    var view = new DataView(arrayBuffer);
+
+    function writeString(offset, str){
+      for(var i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    }
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * blockAlign, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bytesPerSample * 8, true);
+    writeString(36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    var channel = buffer.getChannelData(0);
+    var offset = 44;
+    for(var i = 0; i < length; i++){
+      var sample = Math.max(-1, Math.min(1, channel[i]));
+      var intSample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+      view.setInt16(offset, intSample, true);
+      offset += 2;
+    }
+    return arrayBuffer;
+  }
+
+  // ── Speech ──
   function speak(t){
     try{
       if(!window.speechSynthesis) return;
       window.speechSynthesis.cancel();
-      var u=new SpeechSynthesisUtterance(t); u.lang='en-US'; u.rate=0.98;
-      var v=(window.speechSynthesis.getVoices()||[]).filter(function(x){return /^en/i.test(x.lang);});
-      if(v.length) u.voice=v[0];
+      var u = new SpeechSynthesisUtterance(t); u.lang = 'en-US'; u.rate = 0.98;
+      var v = (window.speechSynthesis.getVoices()||[]).filter(function(x){return /^en/i.test(x.lang);});
+      if(v.length) u.voice = v[0];
       window.speechSynthesis.resume(); window.speechSynthesis.speak(u);
     }catch(e){console.log('speech error',e)}
   }
 
-  var heartFilter = null;
-  var masterGain = null;
-
-  function createHeartChain(){
-    if(heartFilter) return;
-    masterGain = audioCtx.createGain();
-    masterGain.gain.value = 2.5;
-    heartFilter = audioCtx.createBiquadFilter();
-    heartFilter.type = 'lowpass';
-    heartFilter.frequency.value = 350;
-    heartFilter.Q.value = 0.7;
-    heartFilter.connect(masterGain);
-    masterGain.connect(audioCtx.destination);
-  }
-
-  // single thump with layered oscillators + noise for realism
-  function playThump(time, baseFreq, duration, vol){
-    createHeartChain();
-
-    // --- sub-bass layer (triangle for richer harmonics than sine) ---
-    var sub = audioCtx.createOscillator();
-    var subGain = audioCtx.createGain();
-    sub.type = 'triangle';
-    sub.frequency.setValueAtTime(baseFreq, time);
-    sub.frequency.exponentialRampToValueAtTime(baseFreq * 0.5, time + duration);
-    subGain.gain.setValueAtTime(0.001, time);
-    subGain.gain.exponentialRampToValueAtTime(vol * 0.7, time + 0.01);
-    subGain.gain.exponentialRampToValueAtTime(0.001, time + duration);
-    sub.connect(subGain);
-    subGain.connect(heartFilter);
-    sub.start(time);
-    sub.stop(time + duration);
-
-    // --- harmonic layer (sawtooth, low volume, adds chest resonance) ---
-    var harm = audioCtx.createOscillator();
-    var harmGain = audioCtx.createGain();
-    harm.type = 'sawtooth';
-    harm.frequency.setValueAtTime(baseFreq * 1.5, time);
-    harm.frequency.exponentialRampToValueAtTime(baseFreq * 0.8, time + duration);
-    harmGain.gain.setValueAtTime(0.001, time);
-    harmGain.gain.exponentialRampToValueAtTime(vol * 0.25, time + 0.01);
-    harmGain.gain.exponentialRampToValueAtTime(0.001, time + duration * 0.7);
-    harm.connect(harmGain);
-    harmGain.connect(heartFilter);
-    harm.start(time);
-    harm.stop(time + duration);
-
-    // --- noise burst (simulates blood/valve rush) ---
-    var bufSize = Math.floor(audioCtx.sampleRate * duration);
-    var noiseBuf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
-    var data = noiseBuf.getChannelData(0);
-    for(var i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
-    var noise = audioCtx.createBufferSource();
-    noise.buffer = noiseBuf;
-    var noiseFilter = audioCtx.createBiquadFilter();
-    noiseFilter.type = 'bandpass';
-    noiseFilter.frequency.value = 200;
-    noiseFilter.Q.value = 2;
-    var noiseGain = audioCtx.createGain();
-    noiseGain.gain.setValueAtTime(0.001, time);
-    noiseGain.gain.exponentialRampToValueAtTime(vol * 0.15, time + 0.01);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, time + duration * 0.6);
-    noise.connect(noiseFilter);
-    noiseFilter.connect(noiseGain);
-    noiseGain.connect(heartFilter);
-    noise.start(time);
-    noise.stop(time + duration);
-  }
-
-  function heartThump(time){
-    // lub: deep long thud (S1 - AV valves close)
-    playThump(time, 55, 0.22, 2.0);
-    // dub: shorter sharper thud (S2 - semilunar valves close)
-    playThump(time + 0.24, 72, 0.14, 1.6);
-  }
-
-  function startHeartbeat(){
-    if(heartbeatOn || !audioCtx) return;
-    heartbeatOn = true;
-    var heartEl = document.querySelector('#arHeartModel');
-    var baseScale = '2.1 2.1 2.1';
-    function beat(){
-      if(!heartbeatOn) return;
-      var now = audioCtx.currentTime;
-      heartThump(now);
-      // visual pulse: quickly scale up and back
-      if(heartEl){ heartEl.setAttribute('scale', '2.4 2.4 2.4'); }
-      setTimeout(function(){ if(heartEl && heartbeatOn) heartEl.setAttribute('scale', baseScale); }, 120);
-      heartbeatTimer = setTimeout(beat, 850);
-    }
-    beat();
-  }
-
-  function stopHeartbeat(){
-    heartbeatOn = false;
-    if(heartbeatTimer){ clearTimeout(heartbeatTimer); heartbeatTimer = null; }
-  }
-
   function unlockAudio(){
     if(audioReady) return;
-    // create AudioContext now (must happen inside user gesture on mobile)
-    try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){}
-    if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-    speak(line);
     audioReady = true;
+    speak(line);
     document.querySelector('#speakBtn').style.display = 'none';
-    // start heartbeat now that audio is unlocked
-    startHeartbeat();
+
+    // pre-render heartbeat if not done yet
+    if(heartbeatAudio){
+      heartbeatAudio.play();
+    } else {
+      renderHeartbeatWav(function(url){
+        heartbeatBufUrl = url;
+        heartbeatAudio = new Audio(url);
+        heartbeatAudio.loop = true;
+        heartbeatAudio.volume = 1.0;
+        heartbeatAudio.play().catch(function(e){ console.log('audio play error', e); });
+      });
+    }
   }
 
   document.querySelector('#speakBtn').addEventListener('click', unlockAudio);
@@ -203,23 +206,36 @@
 
     var m = document.querySelector('#arHeartModel');
     if(m) m.addEventListener('click',function(){
-      if(!audioReady){
-        unlockAudio();
-      } else {
-        speak(line);
-      }
+      if(!audioReady){ unlockAudio(); }
+      else { speak(line); }
     });
 
     var sc = document.querySelector('a-scene');
+    var heartEl = document.querySelector('#arHeartModel');
+    var baseScale = '2.1 2.1 2.1';
+
     sc.addEventListener('targetFound',function(){
       document.querySelector('#hint').textContent = 'Found! Tap the button to hear it';
       document.querySelector('#speakBtn').style.display = 'block';
-      if(audioReady) startHeartbeat();
+      // resume heartbeat if already unlocked
+      if(audioReady && heartbeatAudio){
+        heartbeatAudio.play();
+      }
+      // visual pulse sync
+      if(heartEl && audioReady){
+        var pulse = setInterval(function(){
+          heartEl.setAttribute('scale', '2.4 2.4 2.4');
+          setTimeout(function(){ if(heartEl) heartEl.setAttribute('scale', baseScale); }, 120);
+        }, 500);
+        sc._pulseInterval = pulse;
+      }
     });
+
     sc.addEventListener('targetLost',function(){
       document.querySelector('#hint').textContent = 'Scanning… hold the figure steady';
       document.querySelector('#speakBtn').style.display = 'none';
-      stopHeartbeat();
+      if(heartbeatAudio){ heartbeatAudio.pause(); }
+      if(sc._pulseInterval){ clearInterval(sc._pulseInterval); sc._pulseInterval = null; }
     });
   });
 </script>
