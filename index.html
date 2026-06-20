@@ -35,7 +35,7 @@
   </a-assets>
 
   <a-camera position="0 0 0" look-controls="enabled: false" cursor="fuse: false; rayOrigin: mouse"
-            raycaster="objects: .tappable"></a-camera>
+            raycaster="objects: .tappable; far: 3"></a-camera>
 
   <!-- Content anchored to the figure (target 0) -->
   <a-entity mindar-image-target="targetIndex: 0">
@@ -44,11 +44,15 @@
     <a-entity light="type: ambient; intensity: 0.9"></a-entity>
     <a-entity light="type: directional; intensity: 0.8" position="0.5 1 1"></a-entity>
 
-    <!-- beating heart, gently rotating, floating just above the page -->
-    <a-entity gltf-model="#heartModel" position="0 0 0.18" rotation="0 0 0" scale="0.22 0.22 0.22"
+    <!-- beating heart, larger scale, floating just above the page -->
+    <a-entity gltf-model="#heartModel" position="0 0 0.18" rotation="0 0 0" scale="0.7 0.7 0.7"
               class="tappable" id="arHeartModel"
               animation-mixer="clip: *; loop: repeat"
               animation="property: rotation; to: 0 360 0; loop: true; dur: 14000; easing: linear"></a-entity>
+
+    <!-- oversized invisible hitbox so tapping the heart is easy on any screen -->
+    <a-box class="tappable" position="0 0.1 0.18" width="1.0" height="1.0" depth="0.6"
+           material="visible: false; transparent: true; opacity: 0"></a-box>
 
     <!-- floating caption above the heart -->
     <a-entity position="0 0.62 0.2">
