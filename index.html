@@ -87,39 +87,79 @@
   }
 
   var heartFilter = null;
+  var masterGain = null;
 
-  function createHeartFilter(){
-    if(heartFilter) return heartFilter;
+  function createHeartChain(){
+    if(heartFilter) return;
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 2.5;
     heartFilter = audioCtx.createBiquadFilter();
     heartFilter.type = 'lowpass';
-    heartFilter.frequency.value = 200;
-    heartFilter.Q.value = 1.5;
-    heartFilter.connect(audioCtx.destination);
-    return heartFilter;
+    heartFilter.frequency.value = 350;
+    heartFilter.Q.value = 0.7;
+    heartFilter.connect(masterGain);
+    masterGain.connect(audioCtx.destination);
   }
 
-  function playThump(time, freq, duration, volume){
-    var osc = audioCtx.createOscillator();
-    var gain = audioCtx.createGain();
-    var filter = createHeartFilter();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, time);
-    osc.frequency.exponentialRampToValueAtTime(freq * 0.4, time + duration);
-    gain.gain.setValueAtTime(0.001, time);
-    gain.gain.exponentialRampToValueAtTime(volume, time + 0.02);
-    gain.gain.setValueAtTime(volume, time + 0.04);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
-    osc.connect(gain);
-    gain.connect(filter);
-    osc.start(time);
-    osc.stop(time + duration);
+  // single thump with layered oscillators + noise for realism
+  function playThump(time, baseFreq, duration, vol){
+    createHeartChain();
+
+    // --- sub-bass layer (triangle for richer harmonics than sine) ---
+    var sub = audioCtx.createOscillator();
+    var subGain = audioCtx.createGain();
+    sub.type = 'triangle';
+    sub.frequency.setValueAtTime(baseFreq, time);
+    sub.frequency.exponentialRampToValueAtTime(baseFreq * 0.5, time + duration);
+    subGain.gain.setValueAtTime(0.001, time);
+    subGain.gain.exponentialRampToValueAtTime(vol * 0.7, time + 0.01);
+    subGain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+    sub.connect(subGain);
+    subGain.connect(heartFilter);
+    sub.start(time);
+    sub.stop(time + duration);
+
+    // --- harmonic layer (sawtooth, low volume, adds chest resonance) ---
+    var harm = audioCtx.createOscillator();
+    var harmGain = audioCtx.createGain();
+    harm.type = 'sawtooth';
+    harm.frequency.setValueAtTime(baseFreq * 1.5, time);
+    harm.frequency.exponentialRampToValueAtTime(baseFreq * 0.8, time + duration);
+    harmGain.gain.setValueAtTime(0.001, time);
+    harmGain.gain.exponentialRampToValueAtTime(vol * 0.25, time + 0.01);
+    harmGain.gain.exponentialRampToValueAtTime(0.001, time + duration * 0.7);
+    harm.connect(harmGain);
+    harmGain.connect(heartFilter);
+    harm.start(time);
+    harm.stop(time + duration);
+
+    // --- noise burst (simulates blood/valve rush) ---
+    var bufSize = Math.floor(audioCtx.sampleRate * duration);
+    var noiseBuf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+    var data = noiseBuf.getChannelData(0);
+    for(var i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+    var noise = audioCtx.createBufferSource();
+    noise.buffer = noiseBuf;
+    var noiseFilter = audioCtx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = 200;
+    noiseFilter.Q.value = 2;
+    var noiseGain = audioCtx.createGain();
+    noiseGain.gain.setValueAtTime(0.001, time);
+    noiseGain.gain.exponentialRampToValueAtTime(vol * 0.15, time + 0.01);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, time + duration * 0.6);
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(heartFilter);
+    noise.start(time);
+    noise.stop(time + duration);
   }
 
   function heartThump(time){
-    // lub: longer, deeper
-    playThump(time, 70, 0.25, 1.8);
-    // small pause then dub: shorter, slightly higher
-    playThump(time + 0.26, 85, 0.16, 1.2);
+    // lub: deep long thud (S1 - AV valves close)
+    playThump(time, 55, 0.22, 2.0);
+    // dub: shorter sharper thud (S2 - semilunar valves close)
+    playThump(time + 0.24, 72, 0.14, 1.6);
   }
 
   function startHeartbeat(){
