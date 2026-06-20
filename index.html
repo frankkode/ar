@@ -70,6 +70,9 @@
 
 <script>
   var audioReady = false;
+  var audioCtx = null;
+  var heartbeatTimer = null;
+  var heartbeatOn = false;
   var line = "This is the human heart. The right side pumps deoxygenated blood to the lungs, and the left side pumps oxygenated blood to the body.";
 
   function speak(t){
@@ -83,12 +86,55 @@
     }catch(e){console.log('speech error',e)}
   }
 
+  function playThump(time, freq, duration, volume){
+    var osc = audioCtx.createOscillator();
+    var gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, time);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.5, time + duration);
+    gain.gain.setValueAtTime(volume, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(time);
+    osc.stop(time + duration);
+  }
+
+  function heartThump(time){
+    // lub: longer, slightly lower
+    playThump(time, 55, 0.15, 0.9);
+    // tiny gap
+    playThump(time + 0.18, 68, 0.11, 0.7);
+  }
+
+  function startHeartbeat(){
+    if(heartbeatOn || !audioCtx) return;
+    heartbeatOn = true;
+    function beat(){
+      if(!heartbeatOn) return;
+      var now = audioCtx.currentTime;
+      heartThump(now);
+      // schedule next lub-dub in ~0.85s (roughly 70 BPM)
+      heartbeatTimer = setTimeout(beat, 850);
+    }
+    beat();
+  }
+
+  function stopHeartbeat(){
+    heartbeatOn = false;
+    if(heartbeatTimer){ clearTimeout(heartbeatTimer); heartbeatTimer = null; }
+  }
+
   function unlockAudio(){
     if(audioReady) return;
-    // A direct user gesture unlocks the speech synthesis API on mobile
+    // create AudioContext now (must happen inside user gesture on mobile)
+    try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){}
+    if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
     speak(line);
     audioReady = true;
     document.querySelector('#speakBtn').style.display = 'none';
+    // start heartbeat now that audio is unlocked
+    startHeartbeat();
   }
 
   document.querySelector('#speakBtn').addEventListener('click', unlockAudio);
@@ -109,10 +155,12 @@
     sc.addEventListener('targetFound',function(){
       document.querySelector('#hint').textContent = 'Found! Tap the button to hear it';
       document.querySelector('#speakBtn').style.display = 'block';
+      if(audioReady) startHeartbeat();
     });
     sc.addEventListener('targetLost',function(){
       document.querySelector('#hint').textContent = 'Scanning… hold the figure steady';
       document.querySelector('#speakBtn').style.display = 'none';
+      stopHeartbeat();
     });
   });
 </script>
