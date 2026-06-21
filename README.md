@@ -32,3 +32,5 @@ the camera requires. Generate a QR code from the Pages URL for the report.
 - If the heart sits too large/small or floats off the page, adjust `scale` and
   the `position` z-value on the `#arHeartModel` entity in `index.html`.
 - If it appears lying flat, add an x-rotation (e.g. `rotation="-90 0 0"`).
+
+## By:Developed by Frank Masabo
