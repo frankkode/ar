@@ -10,7 +10,7 @@ short narration. Reuses the same `heart.glb` as the VR scene.
 - `heart.glb` — the 3D model (CC BY 4.0, dcpisith; see ../vr/models/ATTRIBUTION.txt)
 - `targets.mind` — **you must generate this once** (see below)
 
-## One-time step: make `targets.mind` (~30 seconds)
+## One-time step: make `targets.mind` 
 MindAR tracks a *compiled* version of the image, not the PNG directly.
 1. Open the MindAR image compiler: https://hiukim.github.io/mind-ar-js-doc/tools/compile
 2. Drag in `marker.png`, click **Start**, then **Download** — you get `targets.mind`.
